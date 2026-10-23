@@ -69,7 +69,7 @@ $('loadProfile').onclick=()=>{
  }
  $('editor').value=saved.text;renderText();updateOutputs();layout();
  for(const [id,height] of [['reader',saved.readerHeight],['cameraBox',saved.cameraHeight]]){
-  if(Number.isFinite(height))$(id).style.height=`${Math.max(140,Math.min($('stage').clientHeight,height))}px`;
+  if(Number.isFinite(height))$(id).style.height=`${Math.max(140,Math.min(window.innerHeight,height))}px`;
  }
  position($('reader'),prefs.readerX,prefs.readerY);position($('cameraBox'),prefs.cameraX,prefs.cameraY);paint();save();
  notify(`Perfil “${profile.name}” carregado. Ative a câmera e o microfone quando desejar.`);
@@ -79,13 +79,13 @@ $('deleteProfile').onclick=()=>{
  if(writeProfiles({selectedId:'',items:profileData.items.filter(p=>p.id!==profile.id)})){renderProfiles();notify('Perfil excluído.');}
 };
 renderProfiles();
-function position(box,x,y){const stage=$('stage');box.style.left=`${Math.max(0,(stage.clientWidth-box.offsetWidth)*Number(x)/100)}px`;box.style.top=`${Math.max(0,(stage.clientHeight-box.offsetHeight)*Number(y)/100)}px`;}
+function position(box,x,y){box.style.left=`${Math.max(0,(window.innerWidth-box.offsetWidth)*Number(x)/100)}px`;box.style.top=`${Math.max(0,(window.innerHeight-box.offsetHeight)*Number(y)/100)}px`;}
 function layout(){
  const reader=$('reader'), stage=$('stage');
  reader.style.opacity=prefs.readerOpacity/100;
  $('cameraBox').style.opacity=prefs.cameraOpacity/100;
- reader.style.width=`${prefs.readerWidth}%`;
- reader.style.maxHeight=`${stage.clientHeight}px`;
+ reader.style.width=`${stage.clientWidth*prefs.readerWidth/100}px`;
+ reader.style.maxHeight=`${window.innerHeight}px`;
  reader.style.background=prefs.contrast?'#000000':prefs.background;
  reader.style.color=prefs.contrast?'#ffffff':prefs.textColor;
  position(reader,prefs.readerX,prefs.readerY);
@@ -184,11 +184,14 @@ $('readingMode').onclick=()=>readingMode(true);$('exitReading').onclick=()=>read
 $('panelToggle').onclick=()=>{const hidden=document.body.classList.toggle('panel-hidden');$('panelToggle').textContent=hidden?'Mostrar painel':'Ocultar painel';$('panelToggle').setAttribute('aria-expanded',String(!hidden));requestAnimationFrame(layout);};
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(pending)cancelCountdown();if(document.body.classList.contains('reading'))readingMode(false);return;}if(e.target.closest('input,textarea,select,button,a,[contenteditable="true"],dialog')||e.ctrlKey||e.altKey||e.metaKey)return;if(e.code==='Space'){e.preventDefault();$('play').click();}if(['ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();$('speed').value=Math.max(5,Math.min(180,Number(prefs.speed)+(e.key==='ArrowUp'?5:-5)));$('speed').dispatchEvent(new Event('input'));}});
 document.addEventListener('visibilitychange',()=>{lastTime=null;});
-function draggable(box,handle,xName,yName){let drag=null;handle.addEventListener('pointerdown',e=>{if(e.button!==0)return;drag={x:e.clientX,y:e.clientY,left:box.offsetLeft,top:box.offsetTop};handle.setPointerCapture(e.pointerId);});handle.addEventListener('pointermove',e=>{if(!drag)return;const s=$('stage'),dx=s.clientWidth-box.offsetWidth,dy=s.clientHeight-box.offsetHeight;prefs[xName]=dx>0?Math.max(0,Math.min(100,(drag.left+e.clientX-drag.x)/dx*100)):0;prefs[yName]=dy>0?Math.max(0,Math.min(100,(drag.top+e.clientY-drag.y)/dy*100)):0;$(xName).value=prefs[xName];$(yName).value=prefs[yName];if(xName==='readerX'){prefs.preset='manual';$('preset').value='manual';}position(box,prefs[xName],prefs[yName]);updateOutputs();});const finish=()=>{if(drag){drag=null;save();}};handle.addEventListener('pointerup',finish);handle.addEventListener('pointercancel',finish);}
+function draggable(box,handle,xName,yName){let drag=null;handle.addEventListener('pointerdown',e=>{if(e.button!==0)return;drag={x:e.clientX,y:e.clientY,left:box.offsetLeft,top:box.offsetTop};handle.setPointerCapture(e.pointerId);});handle.addEventListener('pointermove',e=>{if(!drag)return;const dx=window.innerWidth-box.offsetWidth,dy=window.innerHeight-box.offsetHeight;prefs[xName]=dx>0?Math.max(0,Math.min(100,(drag.left+e.clientX-drag.x)/dx*100)):0;prefs[yName]=dy>0?Math.max(0,Math.min(100,(drag.top+e.clientY-drag.y)/dy*100)):0;$(xName).value=prefs[xName];$(yName).value=prefs[yName];if(xName==='readerX'){prefs.preset='manual';$('preset').value='manual';}position(box,prefs[xName],prefs[yName]);updateOutputs();});const finish=()=>{if(drag){drag=null;save();}};handle.addEventListener('pointerup',finish);handle.addEventListener('pointercancel',finish);}
 draggable($('reader'),$('readerHandle'),'readerX','readerY');draggable($('cameraBox'),$('cameraHandle'),'cameraX','cameraY');
 new ResizeObserver(updateScrollDuration).observe($('scriptDim'));
 new ResizeObserver(()=>{position($('reader'),prefs.readerX,prefs.readerY);paint();}).observe($('reader'));
 new ResizeObserver(()=>position($('cameraBox'),prefs.cameraX,prefs.cameraY)).observe($('cameraBox'));
+for(const id of ['reader','cameraBox'])$(id).addEventListener('pointerdown',()=>{
+ for(const other of ['reader','cameraBox'])$(other).classList.toggle('floating-front',other===id);
+});
 window.addEventListener('resize',layout);
 function mediaError(error){const messages={NotAllowedError:'Acesso negado. Autorize a câmera ou o microfone nas configurações do navegador.',NotFoundError:'Nenhum dispositivo compatível foi encontrado. Conecte uma câmera ou microfone.',NotReadableError:'Não foi possível abrir o dispositivo. Verifique se outro aplicativo está usando a câmera ou microfone.',OverconstrainedError:'O dispositivo selecionado não está disponível. Escolha outro dispositivo.',SecurityError:'O navegador bloqueou o acesso. Abra em localhost ou HTTPS.'};notify(messages[error.name]||`Não foi possível acessar o dispositivo: ${error.message||error.name}`);}
 function available(){if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia){notify('A câmera exige localhost ou HTTPS e um navegador com suporte a getUserMedia.');return false;}return true;}
