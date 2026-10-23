@@ -154,6 +154,31 @@ function manualScroll(event){
  paint();
 }
 $('reader').addEventListener('wheel',manualScroll,{passive:false});
+let textDrag=null;
+const readingViewport=$('viewport');
+readingViewport.addEventListener('pointerdown',event=>{
+ if(event.button!==0||event.isPrimary===false||event.ctrlKey||event.metaKey||textDrag)return;
+ event.preventDefault();
+ textDrag={pointerId:event.pointerId,y:event.clientY};
+ readingViewport.setPointerCapture(event.pointerId);
+ readingViewport.classList.add('dragging-text');
+ setRunning(false);
+});
+readingViewport.addEventListener('pointermove',event=>{
+ if(!textDrag||textDrag.pointerId!==event.pointerId)return;
+ // Follow the pointer: dragging upward advances the script.
+ offset=Math.max(0,Math.min(maximum(),offset+textDrag.y-event.clientY));
+ textDrag.y=event.clientY;
+ setRunning(false);
+ paint();
+});
+function finishTextDrag(event){
+ if(!textDrag||textDrag.pointerId!==event.pointerId)return;
+ textDrag=null;
+ readingViewport.classList.remove('dragging-text');
+ if(readingViewport.hasPointerCapture(event.pointerId))readingViewport.releasePointerCapture(event.pointerId);
+}
+for(const type of ['pointerup','pointercancel','lostpointercapture'])readingViewport.addEventListener(type,finishTextDrag);
 function readingMode(on){document.body.classList.toggle('reading',on);$('exitReading').hidden=!on;requestAnimationFrame(layout);if(on)$('exitReading').focus();else $('readingMode').focus();}
 $('readingMode').onclick=()=>readingMode(true);$('exitReading').onclick=()=>readingMode(false);
 $('panelToggle').onclick=()=>{const hidden=document.body.classList.toggle('panel-hidden');$('panelToggle').textContent=hidden?'Mostrar painel':'Ocultar painel';$('panelToggle').setAttribute('aria-expanded',String(!hidden));requestAnimationFrame(layout);};
