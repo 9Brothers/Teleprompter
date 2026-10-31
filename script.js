@@ -3,7 +3,7 @@
 const $ = id => document.getElementById(id);
 const key = 'olhar.teleprompter.v1';
 const sample = 'Sua próxima boa história\ncomeça com um olhar.\n\nRespire fundo. Encontre seu ritmo.\nVocê não precisa decorar cada palavra —\nsó precisa estar presente.\n\nCole seu roteiro no painel ao lado,\najuste a velocidade e fale com naturalidade.\n\nOlhe para a câmera.\nConverse com quem está do outro lado.';
-const defaults = {speed:38,fontSize:38,lineHeight:1.6,textWidth:88,preset:'top',readerX:50,readerY:4,readerWidth:74,focusEnabled:true,focusHeight:150,focusWidth:100,focusX:50,focusY:25,textColor:'#f4f3ef',background:'#171a20',contrast:false,mirrorText:false,mirrorCamera:true,cameraX:94,cameraY:88,cameraWidth:280,countdown:'3',autoScroll:true,readerOpacity:100,cameraOpacity:100,cropEnabled:false,cropWidth:720,cropHeight:1280,cropX:50,cropY:50,cameraZoom:1,recordingFormat:'auto'};
+const defaults = {speed:38,fontSize:38,lineHeight:1.6,textWidth:88,preset:'top',readerX:50,readerY:4,readerWidth:74,focusEnabled:true,focusHeight:150,focusWidth:100,focusX:50,focusY:25,textColor:'#f4f3ef',background:'#171a20',contrast:false,mirrorText:false,mirrorCamera:true,cameraX:94,cameraY:88,cameraWidth:280,countdown:'3',autoScroll:true,readerOpacity:100,cameraOpacity:100,cropEnabled:false,cropWidth:720,cropHeight:1280,cropX:50,cropY:50,cameraZoom:1,recordingFormat:'auto',readingDirection:'vertical',horizontalWindow:35};
 let prefs={...defaults}, text=sample, offset=0, running=false, lastTime=null, streamVideo=null, streamAudio=null, recorder=null, chunks=[], resultURL=null, recordingStart=0, timer=null, countdownTimer=null, pending=false, busy=false, storageTimer, croppedStream=null, recordingCrop=null;
 try {const saved=JSON.parse(localStorage.getItem(key)); if(saved){text=typeof saved.text==='string'?saved.text:sample; for(const name of Object.keys(defaults)){if(typeof saved.prefs?.[name]===typeof defaults[name]) prefs[name]=saved.prefs[name];}}} catch {notify('Os dados salvos estão indisponíveis. Você pode continuar usando o aplicativo.');}
 for(const name of ['cropWidth','cropHeight']){const n=prefs[name];prefs[name]=Number.isFinite(n)?Math.max(64,Math.min(3840,Math.round(n/2)*2)):defaults[name];}
@@ -82,6 +82,9 @@ renderProfiles();
 function position(box,x,y){box.style.left=`${Math.max(0,(window.innerWidth-box.offsetWidth)*Number(x)/100)}px`;box.style.top=`${Math.max(0,(window.innerHeight-box.offsetHeight)*Number(y)/100)}px`;}
 function layout(){
  const reader=$('reader'), stage=$('stage');
+ reader.classList.toggle('horizontal-reading',prefs.readingDirection==='horizontal');
+ $('horizontalWindowControl').hidden=prefs.readingDirection!=='horizontal';
+ $('gazeMarker').hidden=prefs.readingDirection!=='horizontal';
  reader.style.opacity=prefs.readerOpacity/100;
  $('cameraBox').style.opacity=prefs.cameraOpacity/100;
  reader.style.width=`${stage.clientWidth*prefs.readerWidth/100}px`;
@@ -123,9 +126,29 @@ function drawCrop(){
  return true;
 }
 function releaseCropStream(){croppedStream?.getTracks().forEach(track=>track.stop());croppedStream=null;recordingCrop=null;}
-function focusGeometry(){const v=$('viewport');const w=v.clientWidth*prefs.focusWidth/100,h=Math.min(Number(prefs.focusHeight),v.clientHeight);return {w,h,x:(v.clientWidth-w)*prefs.focusX/100,y:(v.clientHeight-h)*prefs.focusY/100};}
-function paint(){updateScrollDuration();const v=$('viewport'),f=focusGeometry();const band=$('focusBand');Object.assign(band.style,{left:`${f.x}px`,top:`${f.y}px`,width:`${f.w}px`,height:`${f.h}px`});const start=Math.max(20,f.y+f.h/2-Number(prefs.fontSize)*Number(prefs.lineHeight)/2);const y=start-offset;const mirror=prefs.mirrorText?' scaleX(-1)':'';$('scriptDim').style.transform=`translateY(${y}px)${mirror}`;Object.assign($('scriptFocus').style,{width:`${v.clientWidth}px`,left:`${-f.x}px`,transform:`translateY(${y-f.y}px)${mirror}`});}
-function maximum(){return Math.max(0,$('scriptDim').offsetHeight-Number(prefs.fontSize)*Number(prefs.lineHeight));}
+function focusGeometry(){
+ const v=$('viewport'),horizontal=prefs.readingDirection==='horizontal';
+ const w=v.clientWidth*(horizontal?prefs.horizontalWindow:prefs.focusWidth)/100;
+ const h=Math.min(horizontal?Number(prefs.fontSize)*Number(prefs.lineHeight):Number(prefs.focusHeight),v.clientHeight);
+ return {w,h,x:(v.clientWidth-w)*prefs.focusX/100,y:(v.clientHeight-h)*prefs.focusY/100};
+}
+function paint(){
+ updateScrollDuration();
+ const v=$('viewport'),f=focusGeometry(),band=$('focusBand');
+ Object.assign(band.style,{left:`${f.x}px`,top:`${f.y}px`,width:`${f.w}px`,height:`${f.h}px`});
+ const mirror=prefs.mirrorText?' scaleX(-1)':'';
+ if(prefs.readingDirection==='horizontal'){
+  const x=f.x+f.w/2+(prefs.mirrorText?$('scriptDim').scrollWidth:0)-offset;
+  $('scriptDim').style.transform=`translate(${x}px,${f.y}px)${mirror}`;
+  Object.assign($('scriptFocus').style,{width:'max-content',left:`${-f.x}px`,transform:`translate(${x}px,0px)${mirror}`});
+  Object.assign($('gazeMarker').style,{left:`${f.x+f.w/2}px`,top:`${f.y}px`,height:`${f.h}px`});
+ }else{
+  const start=Math.max(20,f.y+f.h/2-Number(prefs.fontSize)*Number(prefs.lineHeight)/2),y=start-offset;
+  $('scriptDim').style.transform=`translateY(${y}px)${mirror}`;
+  Object.assign($('scriptFocus').style,{width:`${v.clientWidth}px`,left:`${-f.x}px`,transform:`translateY(${y-f.y}px)${mirror}`});
+ }
+}
+function maximum(){return prefs.readingDirection==='horizontal'?$('scriptDim').scrollWidth:Math.max(0,$('scriptDim').offsetHeight-Number(prefs.fontSize)*Number(prefs.lineHeight));}
 function formatDuration(seconds){
  const total=Math.max(0,Math.ceil(seconds));
  const hours=Math.floor(total/3600),minutes=Math.floor(total/60)%60,remainder=total%60;
@@ -140,8 +163,8 @@ function updateScrollDuration(){
 function setRunning(value){running=value;lastTime=null;$('play').textContent=value?'Ⅱ Pausar leitura':offset>0?'▶ Retomar leitura':'▶ Iniciar leitura';$('scrollState').textContent=value?'Leitura em andamento':offset>0?'Leitura pausada':'Pronto para começar';}
 function frame(time){drawCrop();if(running){if(lastTime!==null){offset=Math.min(maximum(),offset+(time-lastTime)/1000*Number(prefs.speed));paint();if(offset>=maximum()){setRunning(false);$('scrollState').textContent='Fim do roteiro';}}lastTime=time;}requestAnimationFrame(frame);}
 function renderText(){const value=$('editor').value;for(const id of ['scriptDim','scriptFocus'])$(id).textContent=value;$('wordCount').textContent=`${value.trim()?value.trim().split(/\s+/u).length:0} palavras`;offset=0;setRunning(false);paint();}
-function updateOutputs(){const units={speed:' px/s',fontSize:' px',lineHeight:'×',textWidth:'%',readerX:'%',readerY:'%',readerWidth:'%',focusHeight:' px',focusWidth:'%',focusX:'%',focusY:'%',readerOpacity:'%',cameraOpacity:'%',cropX:'%',cropY:'%',cameraZoom:'×'};for(const [id,unit] of Object.entries(units))$(id+'Value').textContent=prefs[id]+unit;}
-for(const name of Object.keys(defaults)){const el=$(name);if(el.type==='checkbox')el.checked=prefs[name];else el.value=prefs[name];prefs[name]=el.type==='checkbox'?el.checked:typeof defaults[name]==='number'?Number(el.value):el.value;el.addEventListener('input',()=>{if(el.type==='number'&&!el.validity.valid)return;prefs[name]=el.type==='checkbox'?el.checked:typeof defaults[name]==='number'?Number(el.value):el.value;if(name==='preset'){const positions={top:[50,4],center:[50,42],left:[0,12],right:[100,12]};if(positions[prefs.preset]){[prefs.readerX,prefs.readerY]=positions[prefs.preset];$('readerX').value=prefs.readerX;$('readerY').value=prefs.readerY;}}if(['readerX','readerY'].includes(name)){prefs.preset='manual';$('preset').value='manual';}updateOutputs();layout();save();});}
+function updateOutputs(){const units={speed:' px/s',fontSize:' px',lineHeight:'×',textWidth:'%',readerX:'%',readerY:'%',readerWidth:'%',focusHeight:' px',focusWidth:'%',focusX:'%',focusY:'%',readerOpacity:'%',cameraOpacity:'%',cropX:'%',cropY:'%',cameraZoom:'×',horizontalWindow:'%'};for(const [id,unit] of Object.entries(units))$(id+'Value').textContent=prefs[id]+unit;}
+for(const name of Object.keys(defaults)){const el=$(name);if(el.type==='checkbox')el.checked=prefs[name];else el.value=prefs[name];prefs[name]=el.type==='checkbox'?el.checked:typeof defaults[name]==='number'?Number(el.value):el.value;el.addEventListener('input',()=>{if(el.type==='number'&&!el.validity.valid)return;prefs[name]=el.type==='checkbox'?el.checked:typeof defaults[name]==='number'?Number(el.value):el.value;if(name==='readingDirection'){offset=0;setRunning(false);}if(name==='preset'){const positions={top:[50,4],center:[50,42],left:[0,12],right:[100,12]};if(positions[prefs.preset]){[prefs.readerX,prefs.readerY]=positions[prefs.preset];$('readerX').value=prefs.readerX;$('readerY').value=prefs.readerY;}}if(['readerX','readerY'].includes(name)){prefs.preset='manual';$('preset').value='manual';}updateOutputs();layout();save();});}
 $('editor').value=text;$('editor').addEventListener('input',()=>{renderText();save();});
 $('play').onclick=()=>{if(!running&&offset>=maximum())offset=0;setRunning(!running);};
 $('restart').onclick=()=>{offset=0;setRunning(false);paint();};
@@ -155,7 +178,8 @@ function paragraphOffsets(){
  const range=document.createRange();
  const tops=starts.map(start=>{
   range.setStart(node,start);range.setEnd(node,start+1);
-  return range.getBoundingClientRect().top;
+  const rect=range.getBoundingClientRect();
+  return prefs.readingDirection==='horizontal'?(prefs.mirrorText?-rect.right:rect.left):rect.top;
  });
  return tops.map(top=>Math.max(0,top-tops[0]));
 }
@@ -181,7 +205,7 @@ const readingViewport=$('viewport');
 readingViewport.addEventListener('pointerdown',event=>{
  if(event.button!==0||event.isPrimary===false||event.ctrlKey||event.metaKey||textDrag)return;
  event.preventDefault();
- textDrag={pointerId:event.pointerId,y:event.clientY};
+ textDrag={pointerId:event.pointerId,x:event.clientX,y:event.clientY};
  readingViewport.setPointerCapture(event.pointerId);
  readingViewport.classList.add('dragging-text');
  setRunning(false);
@@ -189,8 +213,8 @@ readingViewport.addEventListener('pointerdown',event=>{
 readingViewport.addEventListener('pointermove',event=>{
  if(!textDrag||textDrag.pointerId!==event.pointerId)return;
  // Follow the pointer: dragging upward advances the script.
- offset=Math.max(0,Math.min(maximum(),offset+textDrag.y-event.clientY));
- textDrag.y=event.clientY;
+ offset=Math.max(0,Math.min(maximum(),offset+(prefs.readingDirection==='horizontal'?textDrag.x-event.clientX:textDrag.y-event.clientY)));
+ textDrag.y=event.clientY;textDrag.x=event.clientX;
  setRunning(false);
  paint();
 });
