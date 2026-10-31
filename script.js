@@ -4,7 +4,7 @@ const $ = id => document.getElementById(id);
 const key = 'olhar.teleprompter.v1';
 const sample = 'Sua próxima boa história\ncomeça com um olhar.\n\nRespire fundo. Encontre seu ritmo.\nVocê não precisa decorar cada palavra —\nsó precisa estar presente.\n\nCole seu roteiro no painel ao lado,\najuste a velocidade e fale com naturalidade.\n\nOlhe para a câmera.\nConverse com quem está do outro lado.';
 const defaults = {speed:38,fontSize:38,lineHeight:1.6,textWidth:88,preset:'top',readerX:50,readerY:4,readerWidth:74,focusEnabled:true,focusHeight:150,focusWidth:100,focusX:50,focusY:25,textColor:'#f4f3ef',background:'#171a20',contrast:false,mirrorText:false,mirrorCamera:true,cameraX:94,cameraY:88,cameraWidth:280,countdown:'3',autoScroll:true,readerOpacity:100,cameraOpacity:100,cropEnabled:false,cropWidth:720,cropHeight:1280,cropX:50,cropY:50,cameraZoom:1,recordingFormat:'auto',readingDirection:'vertical',horizontalWindow:35,captureResolution:'1080',cameraFps:'30',recordingBitrate:12,gazeX:50};
-let prefs={...defaults}, text=sample, offset=0, running=false, lastTime=null, streamVideo=null, streamAudio=null, recorder=null, chunks=[], resultURL=null, recordingStart=0, timer=null, countdownTimer=null, pending=false, busy=false, storageTimer, croppedStream=null, recordingCrop=null;
+let prefs={...defaults}, text=sample, offset=0, running=false, lastTime=null, streamVideo=null, streamAudio=null, recorder=null, chunks=[], resultURL=null, recordingStart=0, timer=null, countdownTimer=null, pending=false, busy=false, storageTimer, croppedStream=null, recordingCrop=null, photoURL=null, photoTimer=null, photoEncoding=false;
 try {const saved=JSON.parse(localStorage.getItem(key)); if(saved){text=typeof saved.text==='string'?saved.text:sample; for(const name of Object.keys(defaults)){if(typeof saved.prefs?.[name]===typeof defaults[name]) prefs[name]=saved.prefs[name];}}} catch {notify('Os dados salvos estão indisponíveis. Você pode continuar usando o aplicativo.');}
 for(const name of ['cropWidth','cropHeight']){const n=prefs[name];prefs[name]=Number.isFinite(n)?Math.max(64,Math.min(3840,Math.round(n/2)*2)):defaults[name];}
 function notify(message){$('message').textContent=message;}
@@ -286,7 +286,7 @@ for(const type of ['pointerup','pointercancel','lostpointercapture'])readingView
 function readingMode(on){document.body.classList.toggle('reading',on);$('exitReading').hidden=!on;requestAnimationFrame(layout);if(on)$('exitReading').focus();else $('readingMode').focus();}
 $('readingMode').onclick=()=>readingMode(true);$('exitReading').onclick=()=>readingMode(false);
 $('panelToggle').onclick=()=>{const hidden=document.body.classList.toggle('panel-hidden');$('panelToggle').textContent=hidden?'Mostrar painel':'Ocultar painel';$('panelToggle').setAttribute('aria-expanded',String(!hidden));requestAnimationFrame(layout);};
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(pending)cancelCountdown();if(document.body.classList.contains('reading'))readingMode(false);return;}if(e.target.closest('input,textarea,select,button,a,[contenteditable="true"],dialog')||e.ctrlKey||e.altKey||e.metaKey)return;if(e.code==='Space'){e.preventDefault();$('play').click();}if(['ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();$('speed').value=Math.max(Number($('speed').min),Math.min(Number($('speed').max),Number(prefs.speed)+(e.key==='ArrowUp'?1:-1)*(e.shiftKey?50:5)));$('speed').dispatchEvent(new Event('input'));}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(pending)cancelCountdown();if(document.body.classList.contains('reading'))readingMode(false);return;}if(e.code==='KeyP'&&!e.target.closest('input,textarea,select,[contenteditable="true"],dialog')&&!e.ctrlKey&&!e.altKey&&!e.metaKey){e.preventDefault();$('takePhoto').click();return;}if(e.target.closest('input,textarea,select,button,a,[contenteditable="true"],dialog')||e.ctrlKey||e.altKey||e.metaKey)return;if(e.code==='Space'){e.preventDefault();$('play').click();}if(['ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();$('speed').value=Math.max(Number($('speed').min),Math.min(Number($('speed').max),Number(prefs.speed)+(e.key==='ArrowUp'?1:-1)*(e.shiftKey?50:5)));$('speed').dispatchEvent(new Event('input'));}});
 document.addEventListener('visibilitychange',()=>{lastTime=null;});
 function draggable(box,handle,xName,yName){let drag=null;handle.addEventListener('pointerdown',e=>{if(e.button!==0)return;drag={x:e.clientX,y:e.clientY,left:box.offsetLeft,top:box.offsetTop};handle.setPointerCapture(e.pointerId);});handle.addEventListener('pointermove',e=>{if(!drag)return;const dx=window.innerWidth-box.offsetWidth,dy=window.innerHeight-box.offsetHeight;prefs[xName]=dx>0?Math.max(0,Math.min(100,(drag.left+e.clientX-drag.x)/dx*100)):0;prefs[yName]=dy>0?Math.max(0,Math.min(100,(drag.top+e.clientY-drag.y)/dy*100)):0;$(xName).value=prefs[xName];$(yName).value=prefs[yName];if(xName==='readerX'){prefs.preset='manual';$('preset').value='manual';}position(box,prefs[xName],prefs[yName]);updateOutputs();});const finish=()=>{if(drag){drag=null;save();}};handle.addEventListener('pointerup',finish);handle.addEventListener('pointercancel',finish);}
 draggable($('reader'),$('readerHandle'),'readerX','readerY');draggable($('cameraBox'),$('cameraHandle'),'cameraX','cameraY');
@@ -322,7 +322,7 @@ $('applyCameraQuality').onclick=async()=>{
  catch(error){mediaError(error);}
  finally{busy=false;lockMedia(false);updateQualityInfo();}
 };
-function mediaUI(){const camera=!!streamVideo,mic=!!streamAudio;$('cameraEmpty').hidden=camera;$('cameraToggle').textContent=camera?'Desativar câmera':'Ativar câmera';$('micToggle').textContent=mic?'Desativar microfone':'Ativar microfone';$('liveLabel').textContent=camera?'AO VIVO':'DESLIGADA';updateQualityInfo();}
+function mediaUI(){const camera=!!streamVideo,mic=!!streamAudio;$('takePhoto').disabled=photoEncoding||(!camera&&!photoTimer);$('cameraEmpty').hidden=camera;$('cameraToggle').textContent=camera?'Desativar câmera':'Ativar câmera';$('micToggle').textContent=mic?'Desativar microfone':'Ativar microfone';$('liveLabel').textContent=camera?'AO VIVO':'DESLIGADA';updateQualityInfo();}
 async function acquire(kind){const video=kind==='video',id=$(video?'cameraSelect':'micSelect').value;const stream=await navigator.mediaDevices.getUserMedia(video?{video:{...cameraConstraints(),...(id?{deviceId:{exact:id}}:{})},audio:false}:{video:false,audio:id?{deviceId:{exact:id}}:true});for(const track of stream.getTracks())track.addEventListener('ended',()=>{if(recorder?.state==='recording')stopRecording();if(pending)cancelCountdown();if(video&&streamVideo===stream){streamVideo=null;$('webcam').srcObject=null;}if(!video&&streamAudio===stream)streamAudio=null;mediaUI();notify('Um dispositivo foi desconectado ou interrompido.');});return stream;}
 async function toggleMedia(kind){if(busy||pending||recorder?.state==='recording')return;if(!available())return;busy=true;lockMedia(true);try{const current=kind==='video'?streamVideo:streamAudio;if(current){current.getTracks().forEach(t=>t.stop());if(kind==='video'){streamVideo=null;$('webcam').srcObject=null;}else streamAudio=null;}else{const stream=await acquire(kind);if(kind==='video'){streamVideo=stream;$('webcam').srcObject=stream;}else streamAudio=stream;}await devices();}catch(e){mediaError(e);}finally{busy=false;lockMedia(false);mediaUI();}}
 function lockMedia(lock){$('cropControls').disabled=lock;$('qualityControls').disabled=lock;$('recordingFormat').disabled=lock;for(const id of ['cameraToggle','cameraQuick','micToggle','cameraSelect','micSelect'])$(id).disabled=lock;$('record').disabled=busy;updateQualityInfo();}
@@ -354,8 +354,53 @@ function stopRecording(){if(recorder?.state==='recording'){recorder.stop();$('re
 function finishRecording(){releaseCropStream();clearInterval(timer);document.body.classList.remove('recording');$('recordStatus').setAttribute('aria-label','Gravação encerrada');$('record').textContent='● Iniciar gravação';lockMedia(false);const type=recorder.mimeType||chunks[0]?.type||'video/webm';const blob=new Blob(chunks,{type});chunks=[];if(!blob.size){notify('O navegador não produziu dados de vídeo. Tente novamente.');return;}if(resultURL){$('playback').removeAttribute('src');$('playback').load();URL.revokeObjectURL(resultURL);}resultURL=URL.createObjectURL(blob);$('playback').src=resultURL;$('download').href=resultURL;const extension=type.includes('mp4')?'mp4':type.includes('ogg')?'ogv':'webm';$('download').textContent=`↓ Baixar ${extension.toUpperCase()}`;$('download').download=`olhar-${new Date().toISOString().replace(/[:.]/g,'-')}.${extension}`;$('resultInfo').textContent=`${$('elapsed').textContent} · ${(blob.size/1024/1024).toFixed(1)} MB · ${type.split(';')[0]} · Vídeo: ${(recorder.videoBitsPerSecond/1000000).toFixed(1)} Mbps (configurado) · Salve o arquivo antes de fechar esta página.`;$('result').showModal();notify('Gravação finalizada. Assista e baixe o resultado.');}
 $('readingRecording').onclick=stopRecording;
 $('record').onclick=async()=>{if(pending){cancelCountdown();return;}if(recorder?.state==='recording'){stopRecording();return;}if(!window.MediaRecorder){notify('Este navegador não suporta MediaRecorder. Use uma versão atual do Chrome, Edge, Firefox ou Safari.');return;}if(!available()||busy)return;try{supportedType();}catch(e){notify(e.message);return;}busy=true;lockMedia(true);try{if(!streamVideo){streamVideo=await acquire('video');$('webcam').srcObject=streamVideo;}if(!streamAudio)streamAudio=await acquire('audio');mediaUI();await devices();busy=false;const seconds=Number(prefs.countdown);$('elapsed').textContent='00:00';if(seconds){if(prefs.autoScroll)setRunning(false);pending=true;let remaining=seconds;$('countdownOverlay').hidden=false;$('countdownOverlay').textContent=remaining;$('record').disabled=false;$('record').textContent='✕ Cancelar contagem';countdownTimer=setInterval(()=>{remaining--;if(remaining<=0){clearInterval(countdownTimer);startRecording();}else $('countdownOverlay').textContent=remaining;},1000);}else startRecording();}catch(e){busy=false;lockMedia(false);mediaUI();mediaError(e);}};
+function cancelPhoto(){
+ clearInterval(photoTimer);photoTimer=null;
+ $('takePhoto').textContent='▣ Foto · 3 s';mediaUI();
+}
+async function capturePhoto(){
+ photoEncoding=true;cancelPhoto();
+ try{
+  const video=$('webcam');
+  if(!streamVideo||streamVideo.getVideoTracks()[0]?.readyState!=='live'||video.readyState<2||!video.videoWidth)throw new Error('Ative a câmera e aguarde a imagem aparecer.');
+  let source=video,width=video.videoWidth,height=video.videoHeight;
+  if(recordingCrop||cameraEffectsEnabled()){
+   if(!drawCrop())throw new Error('Não foi possível capturar o enquadramento atual.');
+   source=$('cameraCrop');width=source.width;height=source.height;
+  }
+  const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
+  const context=canvas.getContext('2d');if(!context)throw new Error('Captura de foto indisponível neste navegador.');
+  context.drawImage(source,0,0,width,height);
+  const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
+  if(!blob)throw new Error('Não foi possível gerar a foto.');
+  const previous=photoURL;photoURL=URL.createObjectURL(blob);
+  $('photoThumbnail').src=$('photoFull').src=photoURL;
+  $('downloadPhoto').href=photoURL;
+  $('downloadPhoto').download=`olhar-foto-${new Date().toISOString().replace(/[:.]/g,'-')}.png`;
+  $('photoResult').hidden=false;
+  if(previous)URL.revokeObjectURL(previous);
+  notify('Foto pronta em Câmera e gravação. Você pode ampliá-la e baixar o PNG. A leitura continua.');
+ }catch(error){notify(`Não foi possível tirar a foto. ${error.message}`);}
+ finally{photoEncoding=false;mediaUI();}
+}
+$('takePhoto').onclick=()=>{
+ if(photoTimer){cancelPhoto();notify('Foto cancelada.');return;}
+ if(photoEncoding)return;
+ if(!streamVideo){notify('Ative a câmera antes de tirar uma foto.');return;}
+ let remaining=3;
+ $('takePhoto').textContent=`Cancelar foto · ${remaining}`;
+ notify('Continue lendo normalmente. Foto em 3 segundos.');
+ photoTimer=setInterval(()=>{
+  remaining--;
+  if(remaining<=0){capturePhoto();return;}
+  $('takePhoto').textContent=`Cancelar foto · ${remaining}`;
+  notify(`Continue lendo. Foto em ${remaining} segundo(s).`);
+ },1000);
+};
+$('viewPhoto').onclick=()=>$('photoDialog').showModal();
+$('closePhoto').onclick=()=>$('photoDialog').close();
 $('closeResult').onclick=()=>$('result').close();$('result').addEventListener('close',()=>$('playback').pause());
 $('clearData').onclick=()=>{if(busy||pending||recorder?.state==='recording'){notify('Encerre a gravação ou cancele a contagem antes de limpar as preferências.');return;}if(!confirm('Apagar o roteiro, todas as preferências e todos os perfis salvos neste navegador?'))return;clearTimeout(storageTimer);try{localStorage.removeItem(key);localStorage.removeItem(profilesKey);}catch{notify('Não foi possível limpar o armazenamento.');return;}profileData={selectedId:'',items:[]};renderProfiles();prefs={...defaults};$('editor').value='';for(const name of Object.keys(defaults)){if($(name).type==='checkbox')$(name).checked=prefs[name];else $(name).value=prefs[name];}renderText();updateOutputs();layout();notify('Roteiro, preferências e perfis apagados.');};
-window.addEventListener('pagehide',()=>{clearInterval(countdownTimer);clearInterval(timer);if(recorder?.state==='recording')recorder.stop();releaseCropStream();for(const s of [streamVideo,streamAudio])s?.getTracks().forEach(t=>t.stop());if(resultURL)URL.revokeObjectURL(resultURL);});
+window.addEventListener('pagehide',()=>{clearInterval(countdownTimer);clearInterval(timer);clearInterval(photoTimer);if(photoURL)URL.revokeObjectURL(photoURL);if(recorder?.state==='recording')recorder.stop();releaseCropStream();for(const s of [streamVideo,streamAudio])s?.getTracks().forEach(t=>t.stop());if(resultURL)URL.revokeObjectURL(resultURL);});
 updateOutputs();renderText();layout();mediaUI();devices();requestAnimationFrame(frame);
 })();
