@@ -145,12 +145,33 @@ for(const name of Object.keys(defaults)){const el=$(name);if(el.type==='checkbox
 $('editor').value=text;$('editor').addEventListener('input',()=>{renderText();save();});
 $('play').onclick=()=>{if(!running&&offset>=maximum())offset=0;setRunning(!running);};
 $('restart').onclick=()=>{offset=0;setRunning(false);paint();};
+function paragraphOffsets(){
+ const copy=$('scriptDim'),node=copy.firstChild;
+ if(!node||!copy.textContent.trim())return [];
+ const starts=[];
+ // Blank lines separate paragraphs; soft wrapping and single line breaks stay together.
+ const pattern=/(?:^|\n[ \t]*\n)([ \t\n]*)(?=\S)/g;
+ for(const match of copy.textContent.matchAll(pattern))starts.push(match.index+match[0].length);
+ const range=document.createRange();
+ const tops=starts.map(start=>{
+  range.setStart(node,start);range.setEnd(node,start+1);
+  return range.getBoundingClientRect().top;
+ });
+ return tops.map(top=>Math.max(0,top-tops[0]));
+}
+let lastParagraphWheel=-Infinity;
 function manualScroll(event){
  // Preserve browser zoom gestures (including pinch-to-zoom on trackpads).
  if(event.ctrlKey||event.metaKey||!event.deltaY)return;
  event.preventDefault();
- const unit=event.deltaMode===1?Number(prefs.fontSize)*Number(prefs.lineHeight):event.deltaMode===2?$('viewport').clientHeight:1;
- offset=Math.max(0,Math.min(maximum(),offset+event.deltaY*unit));
+ const now=performance.now(),previous=lastParagraphWheel;
+ lastParagraphWheel=now;
+ // Treat trackpad inertia and tightly spaced wheel events as one gesture.
+ if(now-previous<160)return;
+ const paragraphs=paragraphOffsets();
+ if(!paragraphs.length)return;
+ const target=event.deltaY>0?paragraphs.find(top=>top>offset+1):paragraphs.findLast(top=>top<offset-1);
+ if(target!==undefined)offset=Math.min(maximum(),target);
  setRunning(false);
  paint();
 }
