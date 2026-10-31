@@ -29,7 +29,7 @@ function renderProfiles(){
  $('profileSelect').value=profileData.selectedId;
  $('profileName').value=selectedProfile()?.name||'';
  const selected=!!selectedProfile();
- for(const id of ['saveProfile','loadProfile','deleteProfile'])$(id).disabled=!selected;
+ for(const id of ['saveProfile','loadProfile','deleteProfile','exportProfile'])$(id).disabled=!selected;
 }
 function snapshot(){
  const stage=$('stage');
@@ -78,6 +78,61 @@ $('deleteProfile').onclick=()=>{
  const profile=selectedProfile();if(!profile||!confirm(`Excluir o perfil “${profile.name}”? As configurações atuais serão mantidas.`))return;
  if(writeProfiles({selectedId:'',items:profileData.items.filter(p=>p.id!==profile.id)})){renderProfiles();notify('Perfil excluído.');}
 };
+function portableProfile(profile){
+ const {cameraDevice,micDevice,...settings}=profile.snapshot;
+ return {format:'olhar-teleprompter-profile',version:1,profile:{name:profile.name,snapshot:settings}};
+}
+function validateProfileFile(data){
+ if(data?.format!=='olhar-teleprompter-profile'||data.version!==1)throw new Error('Formato ou versão de perfil não reconhecido.');
+ const profile=data.profile,settings=profile?.snapshot;
+ if(typeof profile?.name!=='string'||!profile.name.trim()||profile.name.length>80||typeof settings?.text!=='string'||!settings.prefs||typeof settings.prefs!=='object'||Array.isArray(settings.prefs))throw new Error('O arquivo não contém um perfil válido.');
+ const clean={text:settings.text,prefs:{...defaults},cameraDevice:'',micDevice:''};
+ for(const name of Object.keys(defaults)){
+  if(!Object.hasOwn(settings.prefs,name))continue;
+  let value=settings.prefs[name];const el=$(name);
+  if(typeof value!==typeof defaults[name])throw new Error(`Valor inválido para ${name}.`);
+  if(typeof value==='number'){
+   if(!Number.isFinite(value))throw new Error(`Número inválido para ${name}.`);
+   if(el.min!=='')value=Math.max(Number(el.min),value);
+   if(el.max!=='')value=Math.min(Number(el.max),value);
+   if(el.type==='number')value=Math.round(value/2)*2;
+  }
+  if(el.tagName==='SELECT'&&![...el.options].some(o=>o.value===value))throw new Error(`Opção inválida para ${name}.`);
+  if(el.type==='color'&&!/^#[0-9a-f]{6}$/i.test(value))throw new Error(`Cor inválida para ${name}.`);
+  clean.prefs[name]=value;
+ }
+ for(const name of ['readerHeight','cameraHeight']){
+  if(settings[name]!==undefined){if(!Number.isFinite(settings[name])||settings[name]<=0)throw new Error('Tamanho de área inválido.');clean[name]=Math.min(10000,settings[name]);}
+ }
+ return {name:profile.name.trim(),snapshot:clean};
+}
+function uniqueImportedName(name){
+ if(!profileData.items.some(p=>p.name===name))return name;
+ let count=1,candidate;
+ do{const suffix=` (importado ${count++})`;candidate=name.slice(0,80-suffix.length)+suffix;}while(profileData.items.some(p=>p.name===candidate));
+ return candidate;
+}
+$('exportProfile').onclick=()=>{
+ const profile=selectedProfile();if(!profile)return;
+ const blob=new Blob([JSON.stringify(portableProfile(profile),null,2)],{type:'application/json'});
+ const url=URL.createObjectURL(blob),link=document.createElement('a');
+ link.href=url;link.download=`olhar-perfil-${profile.name.replace(/[^a-z0-9_-]/gi,'-')||'exportado'}.json`;
+ document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+ notify(`Perfil “${profile.name}” exportado. O arquivo inclui o roteiro salvo.`);
+};
+$('importProfile').onclick=()=>$('profileFile').click();
+$('profileFile').addEventListener('change',async()=>{
+ const input=$('profileFile'),file=input.files?.[0];if(!file)return;
+ try{
+  if(file.size>5*1024*1024)throw new Error('O arquivo deve ter no máximo 5 MB.');
+  const profile=validateProfileFile(JSON.parse((await file.text()).replace(/^\uFEFF/,'')));
+  profile.id=crypto.randomUUID();profile.name=uniqueImportedName(profile.name);
+  if(writeProfiles({selectedId:profile.id,items:[...profileData.items,profile]})){
+   renderProfiles();notify(`Perfil “${profile.name}” importado. Clique em Carregar perfil para aplicá-lo.`);
+  }
+ }catch(error){notify(`Não foi possível importar o perfil. ${error instanceof SyntaxError?'O arquivo JSON está inválido.':error.message}`);}
+ finally{input.value='';}
+});
 renderProfiles();
 function position(box,x,y){box.style.left=`${Math.max(0,(window.innerWidth-box.offsetWidth)*Number(x)/100)}px`;box.style.top=`${Math.max(0,(window.innerHeight-box.offsetHeight)*Number(y)/100)}px`;}
 function layout(){
