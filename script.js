@@ -4,7 +4,7 @@ const $ = id => document.getElementById(id);
 const key = 'olhar.teleprompter.v1';
 const sample = 'Sua próxima boa história\ncomeça com um olhar.\n\nRespire fundo. Encontre seu ritmo.\nVocê não precisa decorar cada palavra —\nsó precisa estar presente.\n\nCole seu roteiro no painel ao lado,\najuste a velocidade e fale com naturalidade.\n\nOlhe para a câmera.\nConverse com quem está do outro lado.';
 const defaults = {speed:38,fontSize:38,lineHeight:1.6,textWidth:88,preset:'top',readerX:50,readerY:4,readerWidth:74,focusEnabled:true,focusHeight:150,focusWidth:100,focusX:50,focusY:25,textColor:'#f4f3ef',background:'#171a20',contrast:false,mirrorText:false,mirrorCamera:true,cameraX:94,cameraY:88,cameraWidth:280,countdown:'3',autoScroll:true,readerOpacity:100,cameraOpacity:100,cropEnabled:false,cropWidth:720,cropHeight:1280,cropX:50,cropY:50,cameraZoom:1,recordingFormat:'auto',readingDirection:'vertical',horizontalWindow:35,captureResolution:'1080',cameraFps:'30',recordingBitrate:12,gazeX:50,mirrorRecording:false};
-let prefs={...defaults}, text=sample, offset=0, running=false, lastTime=null, streamVideo=null, streamAudio=null, recorder=null, chunks=[], resultURL=null, recordingStart=0, timer=null, countdownTimer=null, pending=false, busy=false, storageTimer, croppedStream=null, recordingCrop=null, photoURL=null, photoTimer=null, photoEncoding=false, recordingMirrorCanvas=null;
+let prefs={...defaults}, text=sample, offset=0, running=false, lastTime=null, streamVideo=null, streamAudio=null, recorder=null, chunks=[], resultURL=null, recordingStart=0, timer=null, countdownTimer=null, pending=false, busy=false, storageTimer, croppedStream=null, recordingCrop=null, photoURL=null, photoTimer=null, photoEncoding=false, recordingMirrorCanvas=null, uncroppedCameraHeight=null;
 try {const saved=JSON.parse(localStorage.getItem(key)); if(saved){text=typeof saved.text==='string'?saved.text:sample; for(const name of Object.keys(defaults)){if(typeof saved.prefs?.[name]===typeof defaults[name]) prefs[name]=saved.prefs[name];}}} catch {notify('Os dados salvos estão indisponíveis. Você pode continuar usando o aplicativo.');}
 for(const name of ['cropWidth','cropHeight']){const n=prefs[name];prefs[name]=Number.isFinite(n)?Math.max(64,Math.min(3840,Math.round(n/2)*2)):defaults[name];}
 function notify(message){$('message').textContent=message;}
@@ -167,7 +167,37 @@ function cropSettings(){
  const video=$('webcam');
  return {width:prefs.cropEnabled?prefs.cropWidth:video.videoWidth,height:prefs.cropEnabled?prefs.cropHeight:video.videoHeight,x:prefs.cropX,y:prefs.cropY,zoom:prefs.cameraZoom};
 }
-function updateCropPreview(){const enabled=!!(recordingCrop||cameraEffectsEnabled());$('webcam').hidden=enabled;$('cameraCrop').hidden=!enabled;$('cropSupport').textContent=cropSupported()?'':'Gravação com zoom, recorte ou espelhamento indisponível neste navegador. Para gravar a câmera original, desative o recorte e o espelhamento do arquivo e ajuste o zoom para 1×.';}
+function sizeCameraPreview(){
+ const box=$('cameraBox'),crop=recordingCrop||(prefs.cropEnabled?{width:prefs.cropWidth,height:prefs.cropHeight}:null);
+ if(!crop||!crop.width||!crop.height){
+  if(uncroppedCameraHeight!==null){box.style.height=uncroppedCameraHeight;uncroppedCameraHeight=null;}
+  box.classList.remove('cropped-preview');box.style.maxWidth='100vw';return;
+ }
+ if(uncroppedCameraHeight===null)uncroppedCameraHeight=box.style.height||`${box.offsetHeight}px`;
+ box.classList.add('cropped-preview');
+ const chrome=$('cameraHandle').offsetHeight+2,ratio=crop.width/crop.height;
+ box.style.maxWidth=`${Math.max(2,Math.min(window.innerWidth,(window.innerHeight-chrome)*ratio+2))}px`;
+ box.style.height=`${Math.max(0,box.offsetWidth-2)/ratio+chrome}px`;
+}
+function updateCropPreview(){
+ const enabled=!!(recordingCrop||cameraEffectsEnabled());
+ // Keep the video attached and visible beneath the canvas so decoding continues.
+ $('webcam').hidden=false;$('cameraBox').classList.toggle('processed-preview',enabled);
+ $('cameraCrop').hidden=!enabled;
+ sizeCameraPreview();
+ if(enabled)drawCrop();
+ $('cropSupport').textContent=cropSupported()?'':'Gravação com zoom, recorte ou espelhamento indisponível neste navegador. Para gravar a câmera original, desative o recorte e o espelhamento do arquivo e ajuste o zoom para 1×.';
+}
+function cameraFrameLoop(){
+ const video=$('webcam');
+ const next=()=>{
+  try{drawCrop();drawRecordingMirror();}
+  catch(error){notify(`Não foi possível atualizar a prévia da câmera: ${error.message}`);}
+  finally{cameraFrameLoop();}
+ };
+ if(typeof video.requestVideoFrameCallback==='function')video.requestVideoFrameCallback(next);
+ else requestAnimationFrame(next);
+}
 function drawCrop(){
  const crop=recordingCrop||(cameraEffectsEnabled()?cropSettings():null);
  if(!crop)return false;
@@ -226,7 +256,7 @@ function updateScrollDuration(){
  if($('scrollDuration').textContent!==label)$('scrollDuration').textContent=label;
 }
 function setRunning(value){running=value;lastTime=null;$('play').textContent=value?'Ⅱ Pausar leitura':offset>0?'▶ Retomar leitura':'▶ Iniciar leitura';$('scrollState').textContent=value?'Leitura em andamento':offset>0?'Leitura pausada':'Pronto para começar';}
-function frame(time){drawCrop();drawRecordingMirror();if(running){if(lastTime!==null){offset=Math.min(maximum(),offset+(time-lastTime)/1000*Number(prefs.speed));paint();if(offset>=maximum()){setRunning(false);$('scrollState').textContent='Fim do roteiro';}}lastTime=time;}requestAnimationFrame(frame);}
+function frame(time){if(running){if(lastTime!==null){offset=Math.min(maximum(),offset+(time-lastTime)/1000*Number(prefs.speed));paint();if(offset>=maximum()){setRunning(false);$('scrollState').textContent='Fim do roteiro';}}lastTime=time;}requestAnimationFrame(frame);}
 function renderText(){const value=$('editor').value;for(const id of ['scriptDim','scriptFocus'])$(id).textContent=value;$('wordCount').textContent=`${value.trim()?value.trim().split(/\s+/u).length:0} palavras`;offset=0;setRunning(false);paint();}
 function updateOutputs(){const units={speed:' px/s',fontSize:' px',lineHeight:'×',textWidth:'%',readerX:'%',readerY:'%',readerWidth:'%',focusHeight:' px',focusWidth:'%',focusX:'%',focusY:'%',readerOpacity:'%',cameraOpacity:'%',cropX:'%',cropY:'%',cameraZoom:'×',horizontalWindow:'%',recordingBitrate:' Mbps',gazeX:'%'};for(const [id,unit] of Object.entries(units))$(id+'Value').textContent=prefs[id]+unit;}
 for(const name of Object.keys(defaults)){const el=$(name);if(el.type==='checkbox')el.checked=prefs[name];else el.value=prefs[name];prefs[name]=el.type==='checkbox'?el.checked:typeof defaults[name]==='number'?Number(el.value):el.value;el.addEventListener('input',()=>{if(el.type==='number'&&!el.validity.valid)return;prefs[name]=el.type==='checkbox'?el.checked:typeof defaults[name]==='number'?Number(el.value):el.value;if(name==='readingDirection'){offset=0;setRunning(false);}if(name==='preset'){const positions={top:[50,4],center:[50,42],left:[0,12],right:[100,12]};if(positions[prefs.preset]){[prefs.readerX,prefs.readerY]=positions[prefs.preset];$('readerX').value=prefs.readerX;$('readerY').value=prefs.readerY;}}if(['readerX','readerY'].includes(name)){prefs.preset='manual';$('preset').value='manual';}updateOutputs();layout();save();});}
@@ -299,7 +329,9 @@ function draggable(box,handle,xName,yName){let drag=null;handle.addEventListener
 draggable($('reader'),$('readerHandle'),'readerX','readerY');draggable($('cameraBox'),$('cameraHandle'),'cameraX','cameraY');
 new ResizeObserver(updateScrollDuration).observe($('scriptDim'));
 new ResizeObserver(()=>{position($('reader'),prefs.readerX,prefs.readerY);paint();}).observe($('reader'));
-new ResizeObserver(()=>position($('cameraBox'),prefs.cameraX,prefs.cameraY)).observe($('cameraBox'));
+new ResizeObserver(()=>{sizeCameraPreview();position($('cameraBox'),prefs.cameraX,prefs.cameraY);}).observe($('cameraBox'));
+$('webcam').addEventListener('loadeddata',updateCropPreview);
+$('webcam').addEventListener('resize',updateCropPreview);
 for(const id of ['reader','cameraBox'])$(id).addEventListener('pointerdown',()=>{
  for(const other of ['reader','cameraBox'])$(other).classList.toggle('floating-front',other===id);
 });
@@ -416,5 +448,5 @@ $('closePhoto').onclick=()=>$('photoDialog').close();
 $('closeResult').onclick=()=>$('result').close();$('result').addEventListener('close',()=>$('playback').pause());
 $('clearData').onclick=()=>{if(busy||pending||recorder?.state==='recording'){notify('Encerre a gravação ou cancele a contagem antes de limpar as preferências.');return;}if(!confirm('Apagar o roteiro, todas as preferências e todos os perfis salvos neste navegador?'))return;clearTimeout(storageTimer);try{localStorage.removeItem(key);localStorage.removeItem(profilesKey);}catch{notify('Não foi possível limpar o armazenamento.');return;}profileData={selectedId:'',items:[]};renderProfiles();prefs={...defaults};$('editor').value='';for(const name of Object.keys(defaults)){if($(name).type==='checkbox')$(name).checked=prefs[name];else $(name).value=prefs[name];}renderText();updateOutputs();layout();notify('Roteiro, preferências e perfis apagados.');};
 window.addEventListener('pagehide',()=>{clearInterval(countdownTimer);clearInterval(timer);clearInterval(photoTimer);if(photoURL)URL.revokeObjectURL(photoURL);if(recorder?.state==='recording')recorder.stop();releaseCropStream();for(const s of [streamVideo,streamAudio])s?.getTracks().forEach(t=>t.stop());if(resultURL)URL.revokeObjectURL(resultURL);});
-updateOutputs();renderText();layout();mediaUI();devices();requestAnimationFrame(frame);
+updateOutputs();renderText();layout();mediaUI();devices();cameraFrameLoop();requestAnimationFrame(frame);
 })();
